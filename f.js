@@ -5,10 +5,7 @@ const readline = require('readline');
 // Global configuration
 const DEFAULT_MAX = 100000;
 const BLOCK_SIZE = 100;
-const DELAY_MS = 2000; // 2 seconds delay between blocks
-
-// Global variable for the bot.
-let bot;
+const DELAY_MS = 3000; // 3 seconds for channel posting
 
 // In-memory conversation state keyed by chatId
 const state = {};
@@ -35,22 +32,6 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// Helper: Send message with retry on 429 (Too Many Requests)
-async function sendMessageWithRetry(chatId, text, options = {}) {
-  try {
-    return await bot.sendMessage(chatId, text, options);
-  } catch (err) {
-    if (err.response && err.response.statusCode === 429) {
-      let retryAfter = (err.response.body.parameters && err.response.body.parameters.retry_after) || 2;
-      console.log(`Rate limited. Waiting for ${retryAfter} seconds before retrying.`);
-      await delay(retryAfter * 1000);
-      return sendMessageWithRetry(chatId, text, options);
-    } else {
-      console.error('Error sending message:', err);
-    }
-  }
-}
-
 // Create readline interface to get the token from input.
 const rl = readline.createInterface({
   input: process.stdin,
@@ -59,10 +40,9 @@ const rl = readline.createInterface({
 
 rl.question('Enter your Telegram Bot Token: ', (token) => {
   token = token.trim();
-  // Assign to the global bot variable.
-  bot = new TelegramBot(token, { polling: true });
+  const bot = new TelegramBot(token, { polling: true });
 
-  // Save user info to file.
+  // Save user info to file
   function saveUser(user) {
     const data = `${new Date().toISOString()} - ID: ${user.id}, Username: ${user.username}\n`;
     fs.appendFile('users.txt', data, err => {
@@ -82,13 +62,13 @@ rl.question('Enter your Telegram Bot Token: ', (token) => {
         ]
       }
     };
-    sendMessageWithRetry(chatId, "Please choose an option:", mainMenu);
+    bot.sendMessage(chatId, "Please choose an option:", mainMenu);
   }
 
   // Option 1: Send one block (paginated default gift)
   function sendDefaultBlock(chatId, startNum) {
     const endNum = Math.min(startNum + BLOCK_SIZE - 1, DEFAULT_MAX);
-    let text = `&gt; <b>🚀 Gifts from 🎁 ${startNum} to ${endNum}</b>\n`;
+    let text = `> *Gifts from 🎁 ${startNum} to ${endNum}*\n`;
     for (let i = startNum; i <= endNum; i++) {
       text += `${numberToEmoji(i)} http://t.me/nft/JackintheBox-${i}\n`;
     }
@@ -102,60 +82,61 @@ rl.question('Enter your Telegram Bot Token: ', (token) => {
       buttons.push({ text: "Prev", callback_data: `default_paginated_${prevStart}` });
     }
     const options = {
-      parse_mode: 'HTML',
+      parse_mode: 'Markdown',
       reply_markup: { inline_keyboard: [buttons] }
     };
-    sendMessageWithRetry(chatId, text, options);
+    bot.sendMessage(chatId, text, options);
   }
 
-  // Option 3: Send all default gifts in chat (all blocks sequentially) with 2 sec delay.
+  // Option 3: Send all default gifts in chat (all blocks sequentially)
   async function sendAllDefaultGifts(chatId) {
-    await sendMessageWithRetry(chatId, "Starting to send all gift links. This may take a while.");
+    bot.sendMessage(chatId, "Starting to send all gift links. This may take a while.");
     for (let start = 1; start <= DEFAULT_MAX; start += BLOCK_SIZE) {
       const end = Math.min(start + BLOCK_SIZE - 1, DEFAULT_MAX);
-      let text = `&gt; <b>✨ ${numberToEmoji(start)} to ${numberToEmoji(end)}</b>\n`;
+      let text = `> *${numberToEmoji(start)} to ${numberToEmoji(end)}*\n`;
       for (let i = start; i <= end; i++) {
         text += `${numberToEmoji(i)} http://t.me/nft/JackintheBox-${i}\n`;
       }
-      await sendMessageWithRetry(chatId, text, { parse_mode: 'HTML' });
-      await delay(DELAY_MS);
+      await bot.sendMessage(chatId, text, { parse_mode: 'Markdown' });
+      // Optionally add a very short delay to avoid spamming.
+      await delay(100);
     }
   }
 
-  // Option 4A: Custom gift links in current chat (using user's link template)
+  // Option 4A: Custom gift link sent in chat (like option 3 but using user’s link)
   async function sendAllCustomGifts(chatId, baseLink, maxQuantity) {
-    await sendMessageWithRetry(chatId, "Sending all custom gift links in chat. This may take a while.");
+    bot.sendMessage(chatId, "Sending all custom gift links in chat. This may take a while.");
     for (let start = 1; start <= maxQuantity; start += BLOCK_SIZE) {
       const end = Math.min(start + BLOCK_SIZE - 1, maxQuantity);
-      let text = `&gt; <b>🌟 ${numberToEmoji(start)} to ${numberToEmoji(end)}</b>\n`;
+      let text = `> *${numberToEmoji(start)} to ${numberToEmoji(end)}*\n`;
       for (let i = start; i <= end; i++) {
         text += `${numberToEmoji(i)} ${baseLink}${i}\n`;
       }
-      await sendMessageWithRetry(chatId, text, { parse_mode: 'HTML' });
-      await delay(DELAY_MS);
+      await bot.sendMessage(chatId, text, { parse_mode: 'Markdown' });
+      await delay(100);
     }
   }
 
-  // Option 4B: Post custom gift links to a channel with 2 sec delay between blocks.
+  // Option 4B: Post custom gift links to a channel with 3 sec delay between blocks.
   async function sendAllCustomGiftsToChannel(chatId, baseLink, maxQuantity, channelId) {
-    await sendMessageWithRetry(chatId, `Posting to channel ${channelId}. Ensure the bot is admin there.`);
+    bot.sendMessage(chatId, `Posting to channel ${channelId}. Please ensure the bot is admin there.`);
     for (let start = 1; start <= maxQuantity; start += BLOCK_SIZE) {
       const end = Math.min(start + BLOCK_SIZE - 1, maxQuantity);
-      let text = `&gt; <b>🔥 ${numberToEmoji(start)} to ${numberToEmoji(end)}</b>\n`;
+      let text = `> *${numberToEmoji(start)} to ${numberToEmoji(end)}*\n`;
       for (let i = start; i <= end; i++) {
         text += `${numberToEmoji(i)} ${baseLink}${i}\n`;
       }
-      await sendMessageWithRetry(channelId, text, { parse_mode: 'HTML' });
+      await bot.sendMessage(channelId, text, { parse_mode: 'Markdown' });
       await delay(DELAY_MS);
     }
-    sendMessageWithRetry(chatId, "Done posting to channel.");
+    bot.sendMessage(chatId, "Done posting to channel.");
   }
 
   // Handle /start command.
   bot.onText(/\/start/, (msg) => {
     const chatId = msg.chat.id;
     saveUser(msg.from);
-    sendMessageWithRetry(chatId, "Hi welcome to Gifts info bot");
+    bot.sendMessage(chatId, "Hi welcome to Gifts info bot");
     sendMainMenu(chatId);
   });
 
@@ -171,11 +152,11 @@ rl.question('Enter your Telegram Bot Token: ', (token) => {
       if (isNaN(startNum)) startNum = 1;
       sendDefaultBlock(chatId, startNum);
     }
-    // Option 2: User info.
+    // Option 2: Info
     else if (data === "info") {
       const user = callbackQuery.from;
       const infoText = `Username: ${user.username}\nUser ID: ${user.id}`;
-      sendMessageWithRetry(chatId, infoText);
+      bot.sendMessage(chatId, infoText);
     }
     // Option 3: Send all default gifts in chat.
     else if (data === "send_all") {
@@ -184,23 +165,24 @@ rl.question('Enter your Telegram Bot Token: ', (token) => {
     // Option 4: Custom gift options.
     else if (data === "custom_options") {
       state[chatId] = { step: "awaiting_custom_link" };
-      sendMessageWithRetry(chatId, "Please send your custom gift link template (e.g., http://t.me/nft/Jackinthemall-):");
+      bot.sendMessage(chatId, "Please send your custom gift link template (e.g., http://t.me/nft/Jackinthemall-):");
     }
-    // Sub-options for custom gift:
+    // Sub-options for custom gift: Chat vs Channel.
     else if (data === "custom_chat") {
-      if (state[chatId] && state[chatId].baseLink && state[chatId].quantity) {
-        sendAllCustomGifts(chatId, state[chatId].baseLink, state[chatId].quantity);
+      if (state[chatId] && state[chatId].baseLink) {
+        // You may also let the user specify quantity; here we use default MAX.
+        sendAllCustomGifts(chatId, state[chatId].baseLink, state[chatId].maxQuantity || DEFAULT_MAX);
         delete state[chatId];
       } else {
-        sendMessageWithRetry(chatId, "Custom link or quantity not set. Please try again.");
+        bot.sendMessage(chatId, "Custom link not set. Please try again.");
       }
     }
     else if (data === "custom_channel") {
-      if (state[chatId] && state[chatId].baseLink && state[chatId].quantity) {
-        state[chatId].step = "awaiting_channel";
-        sendMessageWithRetry(chatId, "Please enter the channel ID (or @channelusername) where the bot is admin:");
+      if (state[chatId] && state[chatId].baseLink) {
+        state[chatId].step = "awaiting_quantity";
+        bot.sendMessage(chatId, "Please enter the quantity (e.g., 100000 or 500000):");
       } else {
-        sendMessageWithRetry(chatId, "Custom link or quantity not set. Please try again.");
+        bot.sendMessage(chatId, "Custom link not set. Please try again.");
       }
     }
     bot.answerCallbackQuery(callbackQuery.id);
@@ -209,37 +191,42 @@ rl.question('Enter your Telegram Bot Token: ', (token) => {
   // Handle text messages for conversation steps.
   bot.on('message', (msg) => {
     const chatId = msg.chat.id;
+    // Ignore commands
     if (msg.text.startsWith('/')) return;
     if (state[chatId]) {
       // Step: awaiting custom link template.
       if (state[chatId].step === "awaiting_custom_link") {
         state[chatId].baseLink = msg.text.trim();
-        state[chatId].step = "awaiting_custom_quantity";
-        sendMessageWithRetry(chatId, "Please enter the quantity for your custom gift links (e.g., 100000 or 500000):");
+        // Optionally, let the user decide the max quantity.
+        state[chatId].maxQuantity = DEFAULT_MAX;
+        // Present sub-menu for custom gift: Chat or Channel.
+        const customMenu = {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: "Custom Chat", callback_data: "custom_chat" }],
+              [{ text: "Custom Channel", callback_data: "custom_channel" }]
+            ]
+          }
+        };
+        bot.sendMessage(chatId, "Choose how you want to send your custom gift links:", customMenu);
+        state[chatId].step = "custom_choice_made";
       }
-      // Step: awaiting custom quantity.
-      else if (state[chatId].step === "awaiting_custom_quantity") {
+      // Step: awaiting quantity for channel posting.
+      else if (state[chatId].step === "awaiting_quantity") {
         const qty = parseInt(msg.text.trim(), 10);
         if (isNaN(qty) || qty <= 0) {
-          sendMessageWithRetry(chatId, "Invalid quantity. Please enter a positive number.");
+          bot.sendMessage(chatId, "Invalid quantity. Please enter a positive number.");
         } else {
-          state[chatId].quantity = qty;
-          state[chatId].step = "custom_choice_made";
-          const customMenu = {
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: "Custom Chat", callback_data: "custom_chat" }],
-                [{ text: "Custom Channel", callback_data: "custom_channel" }]
-              ]
-            }
-          };
-          sendMessageWithRetry(chatId, "Choose how you want to send your custom gift links:", customMenu);
+          state[chatId].maxQuantity = qty;
+          state[chatId].step = "awaiting_channel";
+          bot.sendMessage(chatId, "Please enter the channel ID (or @channelusername) where the bot is admin:");
         }
       }
       // Step: awaiting channel id.
       else if (state[chatId].step === "awaiting_channel") {
         const channelId = msg.text.trim();
-        sendAllCustomGiftsToChannel(chatId, state[chatId].baseLink, state[chatId].quantity, channelId);
+        // Start posting to the channel.
+        sendAllCustomGiftsToChannel(chatId, state[chatId].baseLink, state[chatId].maxQuantity, channelId);
         delete state[chatId];
       }
     }
