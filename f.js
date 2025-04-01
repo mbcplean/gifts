@@ -5,7 +5,11 @@ const readline = require('readline');
 // Global configuration
 const DEFAULT_MAX = 100000;
 const BLOCK_SIZE = 100;
-const DELAY_MS = 2000; // 2 seconds delay between blocks for Option 3 & 4
+const DELAY_MS = 2000; // 2 seconds delay between blocks
+
+// Global variable for the bot.
+let bot;
+
 // In-memory conversation state keyed by chatId
 const state = {};
 
@@ -36,7 +40,6 @@ async function sendMessageWithRetry(chatId, text, options = {}) {
   try {
     return await bot.sendMessage(chatId, text, options);
   } catch (err) {
-    // Check if error is due to rate limits (HTTP 429)
     if (err.response && err.response.statusCode === 429) {
       let retryAfter = (err.response.body.parameters && err.response.body.parameters.retry_after) || 2;
       console.log(`Rate limited. Waiting for ${retryAfter} seconds before retrying.`);
@@ -56,8 +59,8 @@ const rl = readline.createInterface({
 
 rl.question('Enter your Telegram Bot Token: ', (token) => {
   token = token.trim();
-  // Create the bot instance with polling enabled.
-  const bot = new TelegramBot(token, { polling: true });
+  // Assign to the global bot variable.
+  bot = new TelegramBot(token, { polling: true });
 
   // Save user info to file.
   function saveUser(user) {
@@ -206,7 +209,6 @@ rl.question('Enter your Telegram Bot Token: ', (token) => {
   // Handle text messages for conversation steps.
   bot.on('message', (msg) => {
     const chatId = msg.chat.id;
-    // Skip commands.
     if (msg.text.startsWith('/')) return;
     if (state[chatId]) {
       // Step: awaiting custom link template.
@@ -223,7 +225,6 @@ rl.question('Enter your Telegram Bot Token: ', (token) => {
         } else {
           state[chatId].quantity = qty;
           state[chatId].step = "custom_choice_made";
-          // Present sub-menu for custom gift: Chat or Channel.
           const customMenu = {
             reply_markup: {
               inline_keyboard: [
